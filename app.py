@@ -94,23 +94,38 @@ def fixed_rate_from_text(rate_text: str):
 
 
 def calculate_weighted_fixed_rate(gov_df, corp_df):
-    """Promedio ponderado sobre instrumentos no UDIS. Incluye tasas fijas visibles y excluye UDIS."""
-    total_weight = 0
-    contribution = 0
+    """
+    Promedio ponderado sobre instrumentos con tasa visible.
+    - Excluye UDIBONOS / UDIS.
+    - Incluye tasas como 8.30%*, 8.45%*, 9.20%, etc.
+    - Corrige el caso de DataFrames combinados donde una columna puede existir pero venir vacía/NaN.
+    """
+    total_weight = 0.0
+    contribution = 0.0
 
-    for _, r in pd.concat([gov_df, corp_df], ignore_index=True).iterrows():
-        rate_col = "Tasa / Sobretasa" if "Tasa / Sobretasa" in r.index else "Tasa"
-        rate_text = str(r.get(rate_col, ""))
+    for _, r in gov_df.iterrows():
+        rate_text = str(r.get("Tasa / Sobretasa", ""))
         if "UDI" in rate_text.upper():
             continue
         rate = fixed_rate_from_text(rate_text)
         if rate is None:
             continue
-        w = safe_num(r["Part. (%)"])
+        w = safe_num(r.get("Part. (%)", 0))
         total_weight += w
         contribution += w * rate
 
-    return contribution / total_weight if total_weight else 0
+    for _, r in corp_df.iterrows():
+        rate_text = str(r.get("Tasa", ""))
+        if "UDI" in rate_text.upper():
+            continue
+        rate = fixed_rate_from_text(rate_text)
+        if rate is None:
+            continue
+        w = safe_num(r.get("Part. (%)", 0))
+        total_weight += w
+        contribution += w * rate
+
+    return contribution / total_weight if total_weight else 0.0
 
 
 def wrap_text(c, text, x, y, max_width, font="Helvetica", size=8, leading=10, color=TEXT):
@@ -488,6 +503,28 @@ c2.metric("Corporativos", f"{corp_pct:.1f}%")
 c3.metric("UDIS", f"{udis_pct:.1f}%")
 c4.metric("Tasa ponderada", f"{rate:.2f}%")
 c5.metric("Duración ponderada", f"{duration:.2f} años")
+
+with st.expander("Ver cálculo de tasa ponderada"):
+    fixed_rows = []
+    for _, r in gov_df.iterrows():
+        tasa = str(r.get("Tasa / Sobretasa", ""))
+        if "UDI" not in tasa.upper():
+            rate = fixed_rate_from_text(tasa)
+            if rate is not None:
+                fixed_rows.append([r.get("Instrumento", ""), safe_num(r.get("Part. (%)", 0)), tasa, rate])
+    for _, r in corp_df.iterrows():
+        tasa = str(r.get("Tasa", ""))
+        rate = fixed_rate_from_text(tasa)
+        if rate is not None:
+            fixed_rows.append([r.get("Instrumento", ""), safe_num(r.get("Part. (%)", 0)), tasa, rate])
+    calc_df = pd.DataFrame(fixed_rows, columns=["Instrumento", "Peso %", "Tasa capturada", "Tasa numérica"])
+    if not calc_df.empty:
+        calc_df["Aporte"] = calc_df["Peso %"] * calc_df["Tasa numérica"]
+        st.dataframe(calc_df, use_container_width=True)
+        st.write(f"Suma aportes: {calc_df['Aporte'].sum():.4f} | Peso considerado: {calc_df['Peso %'].sum():.2f}%")
+        st.write(f"Tasa ponderada = {calc_df['Aporte'].sum():.4f} / {calc_df['Peso %'].sum():.2f} = {rate:.2f}%")
+    else:
+        st.warning("No hay tasas numéricas capturadas. Revisa que la columna de tasa tenga valores como 8.30%, 9.20%, etc.")
 
 if abs((gov_pct + corp_pct) - 100) > 0.01:
     st.warning(f"La suma de participaciones es {gov_pct + corp_pct:.2f}%. Idealmente debe sumar 100%.")
