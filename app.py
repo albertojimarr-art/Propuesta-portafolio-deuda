@@ -98,7 +98,6 @@ def calculate_weighted_fixed_rate(gov_df, corp_df):
     Promedio ponderado sobre instrumentos con tasa visible.
     - Excluye UDIBONOS / UDIS.
     - Incluye tasas como 8.30%*, 8.45%*, 9.20%, etc.
-    - Corrige el caso de DataFrames combinados donde una columna puede existir pero venir vacía/NaN.
     """
     total_weight = 0.0
     contribution = 0.0
@@ -107,23 +106,21 @@ def calculate_weighted_fixed_rate(gov_df, corp_df):
         rate_text = str(r.get("Tasa / Sobretasa", ""))
         if "UDI" in rate_text.upper():
             continue
-        rate = fixed_rate_from_text(rate_text)
-        if rate is None:
+        parsed_rate = fixed_rate_from_text(rate_text)
+        if parsed_rate is None:
             continue
         w = safe_num(r.get("Part. (%)", 0))
         total_weight += w
-        contribution += w * rate
+        contribution += w * parsed_rate
 
     for _, r in corp_df.iterrows():
         rate_text = str(r.get("Tasa", ""))
-        if "UDI" in rate_text.upper():
-            continue
-        rate = fixed_rate_from_text(rate_text)
-        if rate is None:
+        parsed_rate = fixed_rate_from_text(rate_text)
+        if parsed_rate is None:
             continue
         w = safe_num(r.get("Part. (%)", 0))
         total_weight += w
-        contribution += w * rate
+        contribution += w * parsed_rate
 
     return contribution / total_weight if total_weight else 0.0
 
@@ -506,23 +503,38 @@ c5.metric("Duración ponderada", f"{duration:.2f} años")
 
 with st.expander("Ver cálculo de tasa ponderada"):
     fixed_rows = []
+
     for _, r in gov_df.iterrows():
-        tasa = str(r.get("Tasa / Sobretasa", ""))
-        if "UDI" not in tasa.upper():
-            rate = fixed_rate_from_text(tasa)
-            if rate is not None:
-                fixed_rows.append([r.get("Instrumento", ""), safe_num(r.get("Part. (%)", 0)), tasa, rate])
+        tasa_texto = str(r.get("Tasa / Sobretasa", ""))
+        if "UDI" not in tasa_texto.upper():
+            tasa_numerica = fixed_rate_from_text(tasa_texto)
+            if tasa_numerica is not None:
+                peso = safe_num(r.get("Part. (%)", 0))
+                fixed_rows.append([r.get("Instrumento", ""), peso, tasa_texto, tasa_numerica, peso * tasa_numerica])
+
     for _, r in corp_df.iterrows():
-        tasa = str(r.get("Tasa", ""))
-        rate = fixed_rate_from_text(tasa)
-        if rate is not None:
-            fixed_rows.append([r.get("Instrumento", ""), safe_num(r.get("Part. (%)", 0)), tasa, rate])
-    calc_df = pd.DataFrame(fixed_rows, columns=["Instrumento", "Peso %", "Tasa capturada", "Tasa numérica"])
+        tasa_texto = str(r.get("Tasa", ""))
+        tasa_numerica = fixed_rate_from_text(tasa_texto)
+        if tasa_numerica is not None:
+            peso = safe_num(r.get("Part. (%)", 0))
+            fixed_rows.append([r.get("Instrumento", ""), peso, tasa_texto, tasa_numerica, peso * tasa_numerica])
+
+    calc_df = pd.DataFrame(
+        fixed_rows,
+        columns=["Instrumento", "Peso %", "Tasa capturada", "Tasa numérica", "Aporte"]
+    )
+
     if not calc_df.empty:
-        calc_df["Aporte"] = calc_df["Peso %"] * calc_df["Tasa numérica"]
+        peso_considerado = calc_df["Peso %"].sum()
+        suma_aportes = calc_df["Aporte"].sum()
+        tasa_ponderada_desglosada = suma_aportes / peso_considerado if peso_considerado else 0
+
         st.dataframe(calc_df, use_container_width=True)
-        st.write(f"Suma aportes: {calc_df['Aporte'].sum():.4f} | Peso considerado: {calc_df['Peso %'].sum():.2f}%")
-        st.write(f"Tasa ponderada = {calc_df['Aporte'].sum():.4f} / {calc_df['Peso %'].sum():.2f} = {rate:.2f}%")
+        st.write(f"Suma aportes: {suma_aportes:.4f} | Peso considerado: {peso_considerado:.2f}%")
+        st.write(
+            f"Tasa ponderada = {suma_aportes:.4f} / {peso_considerado:.2f} = "
+            f"{tasa_ponderada_desglosada:.2f}%"
+        )
     else:
         st.warning("No hay tasas numéricas capturadas. Revisa que la columna de tasa tenga valores como 8.30%, 9.20%, etc.")
 
