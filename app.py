@@ -1,501 +1,395 @@
 
-import io
 import re
-from datetime import datetime
-
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
 
+# =========================================================
+# AJ | CALCULADORA DE PROPUESTA DE PORTAFOLIO
+# Uso: calcular métricas y generar un bloque de datos
+# para copiar aquí y crear la imagen final.
+# =========================================================
 
-# =========================
-# CONFIGURACIÓN VISUAL AJ
-# =========================
-W, H = 1024, 1536
-NAVY = "#0B1F2E"
-NAVY_DARK = "#061827"
-GOLD = "#D4AF37"
-GOLD_DARK = "#B8860B"
-WHITE = "#FFFFFF"
-OFFWHITE = "#FBFBFA"
-LIGHT = "#F4F5F7"
-GRID = "#E3E6EA"
-TEXT = "#0B1324"
-MUTED = "#6B7280"
-
-DISCLAIMER = (
-    "Los fines de este documento son meramente informativos. Ni Grupo Bursátil Mexicano S.A. de C.V., "
-    "Casa de Bolsa, ni cualquiera de las sociedades relacionadas a ésta, ofrecen ni pretenden garantizar "
-    "de manera expresa o implícita la rentabilidad de los productos de inversión referidos en el presente. "
-    "Rendimientos pasados no garantizan rendimientos futuros, la información y análisis contenidos no "
-    "constituyen ni pretenden ofrecer asesoría de inversión. Los papeles listados están sujetos a "
-    "disponibilidad al momento de la boletinación."
+st.set_page_config(
+    page_title="AJ | Calculadora Portafolio Deuda",
+    layout="wide"
 )
 
+st.title("AJ | Calculadora de Propuesta de Portafolio")
+st.caption("Calcula los datos finales para copiar y generar la imagen ejecutiva.")
+
+# -----------------------------
+# Datos base
+# -----------------------------
 DEFAULT_GOV = pd.DataFrame(
     [
-        ["MBONO 31", 12.5, 500000, "Gobierno Federal", "AAA (mx)\nS&P / Fitch", 3.95, "8.50%", "Semestral"],
-        ["MBONO 34", 12.5, 500000, "Gobierno Federal", "AAA (mx)\nS&P / Fitch", 5.82, "9.00%", "Semestral"],
-        ["UDIBONO 28", 10.0, 400000, "Gobierno Federal", "AAA (mx)\nS&P / Fitch", 2.36, "UDIS + 3.80%", "Semestral"],
-        ["UDIBONO 31", 15.0, 600000, "Gobierno Federal", "AAA (mx)\nS&P / Fitch", 5.01, "UDIS + 4.30%", "Semestral"],
+        ["MBONO 31", 12.5, "Gobierno Federal", "AAA (mx) S&P / Fitch", 3.95, "8.50%", "Semestral"],
+        ["MBONO 34", 12.5, "Gobierno Federal", "AAA (mx) S&P / Fitch", 5.82, "9.00%", "Semestral"],
+        ["UDIBONO 28", 10.0, "Gobierno Federal", "AAA (mx) S&P / Fitch", 2.36, "UDIS + 3.80%", "Semestral"],
+        ["UDIBONO 31", 15.0, "Gobierno Federal", "AAA (mx) S&P / Fitch", 5.01, "UDIS + 4.30%", "Semestral"],
     ],
-    columns=["Instrumento", "Part. (%)", "Monto", "Emisor", "Calificación", "Duración", "Tasa / Sobretasa", "Periodicidad Cupones"],
+    columns=[
+        "Instrumento",
+        "Part. (%)",
+        "Emisor",
+        "Calificación",
+        "Duración",
+        "Tasa / Sobretasa",
+        "Periodicidad Cupones",
+    ],
 )
 
 DEFAULT_CORP = pd.DataFrame(
     [
-        ["FACTORING", 10.0, 400000, "Factoring", "AA (F1 Fitch)", 0.70, "8.30%*", "Mensual"],
-        ["PDN", 10.0, 400000, "PDN", "AA (F1 Fitch)", 0.85, "8.45%*", "Mensual"],
-        ["GM FIN 26-2", 10.0, 400000, "GM Financial", "AAA (S&P) /\nAA+ (Fitch)", 3.41, "9.20%", "Semestral"],
-        ["ORBIA 22-2L", 10.0, 400000, "Orbia", "AA Fitch", 4.44, "10.15%", "Semestral"],
-        ["CABEI 1-25S", 10.0, 400000, "CABEI", "AAA (S&P) /\nAaa.mx (Moody's)", 2.67, "8.21%", "Mensual"],
+        ["FACTORING", 10.0, "Factoring", "AA (F1 Fitch)", 0.70, "8.30%*", "Mensual"],
+        ["PDN", 10.0, "PDN", "AA (F1 Fitch)", 0.85, "8.45%*", "Mensual"],
+        ["GM FIN 26-2", 10.0, "GM Financial", "AAA (S&P) / AA+ (Fitch)", 3.41, "9.20%", "Semestral"],
+        ["ORBIA 22-2L", 10.0, "Orbia", "AA Fitch", 4.44, "10.15%", "Semestral"],
+        ["CABEI 1-25S", 10.0, "CABEI", "AAA (S&P) / Aaa.mx (Moody's)", 2.67, "8.21%", "Mensual"],
     ],
-    columns=["Instrumento", "Part. (%)", "Monto", "Emisor", "Calificación", "Duración", "Tasa", "Periodicidad Cupones"],
+    columns=[
+        "Instrumento",
+        "Part. (%)",
+        "Emisor",
+        "Calificación",
+        "Duración",
+        "Tasa",
+        "Periodicidad Cupones",
+    ],
 )
 
-
-# =========================
-# FUENTES
-# =========================
-def font(size, bold=False, serif=False):
-    candidates = []
-    if serif:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-            "/System/Library/Fonts/Times.ttc",
-        ]
-    else:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
-        ]
-    for p in candidates:
-        try:
-            return ImageFont.truetype(p, size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
-
-
-F_SERIF_74 = font(74, True, True)
-F_SERIF_54 = font(54, True, True)
-F_SERIF_36 = font(36, True, True)
-F_SERIF_30 = font(30, True, True)
-F_SERIF_24 = font(24, True, True)
-
-F_34B = font(34, True)
-F_30B = font(30, True)
-F_26B = font(26, True)
-F_24B = font(24, True)
-F_22B = font(22, True)
-F_20B = font(20, True)
-F_18B = font(18, True)
-F_16B = font(16, True)
-F_14B = font(14, True)
-F_13B = font(13, True)
-F_12B = font(12, True)
-F_11B = font(11, True)
-F_10B = font(10, True)
-
-F_20 = font(20)
-F_18 = font(18)
-F_16 = font(16)
-F_14 = font(14)
-F_13 = font(13)
-F_12 = font(12)
-F_11 = font(11)
-F_10 = font(10)
-F_9 = font(9)
-F_8 = font(8)
-
-
-# =========================
-# CÁLCULOS
-# =========================
-def money(v):
+# -----------------------------
+# Funciones
+# -----------------------------
+def safe_float(value: object) -> float:
     try:
-        return f"${float(v):,.0f}"
-    except Exception:
-        return "$0"
-
-def pct(v):
-    try:
-        v = float(v)
-        return f"{v:.1f}%" if abs(v - round(v)) > 0.01 else f"{v:.0f}%"
-    except Exception:
-        return "0%"
-
-def safe_float(v):
-    try:
-        if pd.isna(v):
+        if pd.isna(value):
             return 0.0
-        return float(v)
+        return float(value)
     except Exception:
         return 0.0
 
-def fixed_rate_from_text(txt):
-    m = re.search(r"(\d+(?:\.\d+)?)\s*%", str(txt))
-    return float(m.group(1)) if m else None
 
-def weighted_duration(df):
-    return sum(safe_float(r["Part. (%)"]) / 100 * safe_float(r["Duración"]) for _, r in df.iterrows())
+def money(value: float) -> str:
+    return f"${value:,.0f}"
 
-def avg_duration(df):
-    total = df["Part. (%)"].astype(float).sum() if not df.empty else 0
-    return weighted_duration(df) / (total / 100) if total else 0
 
-def weighted_rate(gov, corp):
-    tw, contrib = 0.0, 0.0
-    for _, r in gov.iterrows():
-        tasa = str(r.get("Tasa / Sobretasa", ""))
-        if "UDI" in tasa.upper():
+def pct(value: float) -> str:
+    value = float(value)
+    if abs(value - round(value)) < 0.01:
+        return f"{value:.0f}%"
+    return f"{value:.1f}%"
+
+
+def extract_rate(rate_text: str):
+    """
+    Extrae el primer número con % dentro de un texto:
+    - 8.30%*
+    - 8.45%
+    - TIIE + 1.35%  -> extrae 1.35, por eso para tasa total conviene capturar 8.30%*
+    - UDIS + 3.80% -> se excluye por contener UDI
+    """
+    if not isinstance(rate_text, str):
+        return None
+
+    match = re.search(r"(\d+(?:\.\d+)?)\s*%", rate_text)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def weighted_duration(df: pd.DataFrame) -> float:
+    return sum(
+        safe_float(row["Part. (%)"]) / 100 * safe_float(row["Duración"])
+        for _, row in df.iterrows()
+    )
+
+
+def average_duration_by_block(df: pd.DataFrame) -> float:
+    total_weight = df["Part. (%)"].astype(float).sum() if not df.empty else 0.0
+    if total_weight == 0:
+        return 0.0
+    return weighted_duration(df) / (total_weight / 100)
+
+
+def weighted_fixed_rate(gov_df: pd.DataFrame, corp_df: pd.DataFrame):
+    """
+    Calcula tasa ponderada sobre instrumentos con tasa visible, excluyendo UDIS.
+    Regresa:
+    - tasa ponderada
+    - tabla de cálculo
+    - peso considerado
+    - suma de aportes
+    """
+    rows = []
+
+    for _, row in gov_df.iterrows():
+        tasa_texto = str(row.get("Tasa / Sobretasa", ""))
+        if "UDI" in tasa_texto.upper():
             continue
-        rate = fixed_rate_from_text(tasa)
-        if rate is not None:
-            w = safe_float(r.get("Part. (%)", 0))
-            tw += w
-            contrib += w * rate
-    for _, r in corp.iterrows():
-        tasa = str(r.get("Tasa", ""))
-        rate = fixed_rate_from_text(tasa)
-        if rate is not None:
-            w = safe_float(r.get("Part. (%)", 0))
-            tw += w
-            contrib += w * rate
-    return contrib / tw if tw else 0.0
+
+        tasa_num = extract_rate(tasa_texto)
+        if tasa_num is None:
+            continue
+
+        peso = safe_float(row.get("Part. (%)", 0))
+        rows.append(
+            {
+                "Tipo": "Gobierno",
+                "Instrumento": row.get("Instrumento", ""),
+                "Peso %": peso,
+                "Tasa capturada": tasa_texto,
+                "Tasa numérica": tasa_num,
+                "Aporte": peso * tasa_num,
+            }
+        )
+
+    for _, row in corp_df.iterrows():
+        tasa_texto = str(row.get("Tasa", ""))
+
+        tasa_num = extract_rate(tasa_texto)
+        if tasa_num is None:
+            continue
+
+        peso = safe_float(row.get("Part. (%)", 0))
+        rows.append(
+            {
+                "Tipo": "Corporativo",
+                "Instrumento": row.get("Instrumento", ""),
+                "Peso %": peso,
+                "Tasa capturada": tasa_texto,
+                "Tasa numérica": tasa_num,
+                "Aporte": peso * tasa_num,
+            }
+        )
+
+    calc_df = pd.DataFrame(rows)
+
+    if calc_df.empty:
+        return 0.0, calc_df, 0.0, 0.0
+
+    peso_considerado = calc_df["Peso %"].sum()
+    suma_aportes = calc_df["Aporte"].sum()
+
+    tasa = suma_aportes / peso_considerado if peso_considerado else 0.0
+
+    return tasa, calc_df, peso_considerado, suma_aportes
 
 
-# =========================
-# DIBUJO
-# =========================
-def draw_text(draw, xy, text, fill=TEXT, font_obj=F_12, anchor=None):
-    draw.text(xy, str(text), fill=fill, font=font_obj, anchor=anchor)
+def add_amounts(df: pd.DataFrame, total_portfolio: float) -> pd.DataFrame:
+    df = df.copy()
+    df["Monto"] = df["Part. (%)"].astype(float) / 100 * total_portfolio
+    return df
 
-def text_size(draw, text, f):
-    box = draw.textbbox((0, 0), str(text), font=f)
-    return box[2] - box[0], box[3] - box[1]
 
-def draw_wrapped(draw, text, x, y, max_w, f, fill=TEXT, line_h=None, align="left"):
-    if line_h is None:
-        line_h = int(f.size * 1.25)
+def format_table_for_copy(df: pd.DataFrame, rate_column: str) -> str:
     lines = []
-    for para in str(text).split("\n"):
-        words = para.split()
-        cur = ""
-        for w in words:
-            test = (cur + " " + w).strip()
-            if text_size(draw, test, f)[0] <= max_w:
-                cur = test
-            else:
-                if cur:
-                    lines.append(cur)
-                cur = w
-        if cur:
-            lines.append(cur)
-    for i, line in enumerate(lines):
-        yy = y + i * line_h
-        if align == "center":
-            draw_text(draw, (x + max_w / 2, yy), line, fill, f, anchor="ma")
-        else:
-            draw_text(draw, (x, yy), line, fill, f)
-    return y + len(lines) * line_h
-
-def rounded_rect(draw, xy, radius, fill, outline=None, width=1):
-    draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
-
-def draw_icon_circle(draw, cx, cy, label=""):
-    draw.ellipse((cx-30, cy-30, cx+30, cy+30), fill=NAVY, outline=None)
-    draw.ellipse((cx-20, cy-20, cx+20, cy+20), outline=GOLD, width=3)
-    if label:
-        draw_text(draw, (cx, cy-10), label, GOLD, F_20B, anchor="ma")
-
-def draw_summary(draw, x, y, w, h, total, gov_pct, corp_pct, rate, duration, udis_pct):
-    rounded_rect(draw, (x, y, x+w, y+h), 18, NAVY_DARK, GOLD, 2)
-    rows = [
-        ("PORTAFOLIO TOTAL", money(total), ""),
-        ("GOBIERNO FEDERAL", f"{pct(gov_pct)}  |  {money(total*gov_pct/100)}", ""),
-        ("CORPORATIVOS", f"{pct(corp_pct)}  |  {money(total*corp_pct/100)}", ""),
-        ("TASA PONDERADA", f"{rate:.2f}%", "anual"),
-        ("DURACIÓN PONDERADA", f"{duration:.2f}", "años"),
-        ("EXPOSICIÓN UDIS", f"{pct(udis_pct)}", "del portafolio"),
-    ]
-    rh = h / 6
-    for i, (label, value, suffix) in enumerate(rows):
-        yy = int(y + i*rh)
-        cy = int(yy + rh/2)
-        draw.ellipse((x+25, cy-22, x+69, cy+22), outline=GOLD, width=3)
-        if i < len(rows)-1:
-            draw.line((x+95, yy+rh, x+w-24, yy+rh), fill=GOLD_DARK, width=2)
-        draw_text(draw, (x+95, cy-27), label, WHITE, F_14)
-        draw_text(draw, (x+95, cy-4), value, WHITE, F_26B)
-        if suffix:
-            draw_text(draw, (x+190, cy+3), suffix, WHITE, F_14)
-
-def draw_features(draw, y, gov_pct, corp_pct, udis_pct):
-    items = [
-        (pct(gov_pct), "Gobierno Federal", "Máxima calidad\ncrediticia soberana."),
-        (pct(corp_pct), "Instrumentos\nCorporativos", "Emisores de alta\ncalidad crediticia."),
-        (pct(udis_pct), "Cobertura\nInflacionaria", "Invertido en\nUDIBONOS\n(UDI + sobretasa)."),
-        ("Ingresos\nPeriódicos", "", "Cobro recurrente de\ncupones durante la\nvida de las emisiones."),
-    ]
-    x0, block_w = 24, 244
-    for i, (big, title, desc) in enumerate(items):
-        x = x0 + i*block_w
-        if i > 0:
-            draw.line((x, y+20, x, y+170), fill="#D1D5DB", width=1)
-        draw_icon_circle(draw, x+block_w//2, y+42)
-        for j, line in enumerate(big.split("\n")):
-            draw_text(draw, (x+block_w//2, y+78+j*25), line, NAVY, F_30B if len(big.split("\n")) == 1 else F_24B, anchor="ma")
-        base = y + 112 if len(big.split("\n")) == 1 else y + 130
-        for j, line in enumerate(title.split("\n")):
-            draw_text(draw, (x+block_w//2, base+j*18), line, NAVY, F_14B, anchor="ma")
-        desc_y = base + (len(title.split("\n"))*18) + 12
-        for j, line in enumerate(desc.split("\n")):
-            draw_text(draw, (x+block_w//2, desc_y+j*17), line, TEXT, F_12, anchor="ma")
-
-def draw_table(draw, x, y, w, title, top_label, df, columns, rate_col, band_color, subtotal_label, duration_avg, row_h):
-    band_h = 56
-    draw.rectangle((x, y, x+w, y+band_h), fill=band_color)
-    draw_text(draw, (x+24, y+18), title, WHITE, F_18B)
-    draw_text(draw, (x+w-20, y+18), top_label, WHITE, F_16, anchor="ra")
-    y += band_h
-
-    header_h = 46
-    draw.rectangle((x, y, x+w, y+header_h), fill=WHITE)
-    col_fracs = [0.16, 0.085, 0.13, 0.135, 0.155, 0.11, 0.13, 0.095]
-    col_w = [int(w*f) for f in col_fracs]
-    col_w[-1] = w - sum(col_w[:-1])
-
-    xx = x
-    for c, cw in zip(columns, col_w):
-        draw_wrapped(draw, c.upper(), xx+8, y+12, cw-12, F_10B, GOLD_DARK, 12)
-        xx += cw
-    y += header_h
-
-    for idx, (_, r) in enumerate(df.iterrows()):
-        fill = WHITE if idx % 2 else "#FAFAFA"
-        draw.rectangle((x, y, x+w, y+row_h), fill=fill)
-        vals = [
-            str(r.get("Instrumento", "")),
-            pct(safe_float(r.get("Part. (%)", 0))),
-            money(safe_float(r.get("Monto", 0))),
-            str(r.get("Emisor", "")),
-            str(r.get("Calificación", "")),
-            f"{safe_float(r.get('Duración', 0)):.2f} años",
-            str(r.get(rate_col, "")),
-            str(r.get("Periodicidad Cupones", "")),
-        ]
-        xx = x
-        for j, (val, cw) in enumerate(zip(vals, col_w)):
-            f = F_11B if j in [0, 6] else F_10
-            color = NAVY if j in [0, 6] else TEXT
-            draw_wrapped(draw, val, xx+8, y+14, cw-14, f, color, 13)
-            draw.line((xx, y, xx, y+row_h), fill=GRID, width=1)
-            xx += cw
-        draw.line((x+w, y, x+w, y+row_h), fill=GRID, width=1)
-        draw.line((x, y+row_h, x+w, y+row_h), fill=GRID, width=1)
-        y += row_h
-
-    sub_h = 40
-    draw.rectangle((x, y, x+w, y+sub_h), fill=band_color)
-    total_pct = df["Part. (%)"].astype(float).sum() if not df.empty else 0
-    total_amt = df["Monto"].astype(float).sum() if not df.empty else 0
-    draw_text(draw, (x+18, y+12), f"{subtotal_label}     {pct(total_pct)}   |   {money(total_amt)}", WHITE, F_13B)
-    draw_text(draw, (x+w-18, y+12), f"DURACIÓN PROMEDIO: {duration_avg:.2f} años", WHITE, F_13B, anchor="ra")
-    return y + sub_h
-
-def generate_page(client_name, adviser_name, adviser_role, date_text, strategy, total, gov_df, corp_df):
-    gov_df = gov_df.copy()
-    corp_df = corp_df.copy()
-    gov_df["Monto"] = gov_df["Part. (%)"].astype(float) / 100 * total
-    corp_df["Monto"] = corp_df["Part. (%)"].astype(float) / 100 * total
-
-    gov_pct = gov_df["Part. (%)"].astype(float).sum() if not gov_df.empty else 0
-    corp_pct = corp_df["Part. (%)"].astype(float).sum() if not corp_df.empty else 0
-    udis_pct = gov_df[gov_df["Instrumento"].astype(str).str.upper().str.contains("UDI", na=False)]["Part. (%)"].astype(float).sum() if not gov_df.empty else 0
-    duration = weighted_duration(gov_df) + weighted_duration(corp_df)
-    rate = weighted_rate(gov_df, corp_df)
-
-    img = Image.new("RGB", (W, H), OFFWHITE)
-    draw = ImageDraw.Draw(img)
-
-    # Header navy area
-    draw.rectangle((0, 0, W, 405), fill=NAVY)
-    # decorative golden curves
-    for off in [0, 22]:
-        draw.arc((330, -180+off, 1160, 300+off), 190, 340, fill=GOLD, width=2)
-
-    # Logo and adviser
-    draw_text(draw, (28, 22), "AJ", GOLD, F_SERIF_74)
-    draw.line((162, 28, 162, 118), fill=GOLD, width=2)
-    draw_text(draw, (200, 55), adviser_name.upper(), GOLD, F_SERIF_24)
-    draw_text(draw, (200, 90), adviser_role, WHITE, F_16)
-
-    draw_text(draw, (W-24, 24), date_text.upper(), GOLD, F_16B, anchor="ra")
-
-    draw_text(draw, (28, 172), "Propuesta", WHITE, F_SERIF_54)
-    draw_text(draw, (28, 235), "de Portafolio", WHITE, F_SERIF_54)
-    draw_text(draw, (28, 320), client_name, GOLD, F_SERIF_30)
-    draw_text(draw, (28, 360), strategy, WHITE, F_18)
-
-    draw_summary(draw, 640, 55, 345, 468, total, gov_pct, corp_pct, rate, duration, udis_pct)
-
-    # Feature blocks
-    draw.rectangle((0, 405, W, 662), fill=WHITE)
-    draw_features(draw, 428, gov_pct, corp_pct, udis_pct)
-    draw_text(draw, (24, 688), "* Tasa ponderada calculada sobre instrumentos con tasa visible. Los Udibonos generan inflación (UDI) + sobretasa.", TEXT, F_11)
-
-    # Tables
-    total_rows = len(gov_df) + len(corp_df)
-    row_h = 62 if total_rows <= 9 else max(48, int(558 / max(total_rows, 1)))
-
-    x, w = 20, W-40
-    y = 720
-    y = draw_table(
-        draw, x, y, w,
-        "TÍTULOS PÚBLICOS — GOBIERNO FEDERAL",
-        f"{pct(gov_pct)} del portafolio  |  {money(total*gov_pct/100)}",
-        gov_df,
-        ["Instrumento", "Part.", "Monto (MXN)", "Emisor", "Calificación", "Duración", "Tasa / Sobretasa", "Periodicidad\nCupones"],
-        "Tasa / Sobretasa",
-        NAVY,
-        "SUBTOTAL PÚBLICOS",
-        avg_duration(gov_df),
-        row_h
-    )
-
-    y += 18
-    y = draw_table(
-        draw, x, y, w,
-        "TÍTULOS CORPORATIVOS",
-        f"{pct(corp_pct)} del portafolio  |  {money(total*corp_pct/100)}",
-        corp_df,
-        ["Instrumento", "Part.", "Monto (MXN)", "Emisor", "Calificación", "Duración", "Tasa", "Periodicidad\nCupones"],
-        "Tasa",
-        GOLD_DARK,
-        "SUBTOTAL CORPORATIVOS",
-        avg_duration(corp_df),
-        row_h
-    )
-
-    draw_text(draw, (28, y+8), "* TIIE+", TEXT, F_11B)
-
-    # Disclaimer fixed at bottom
-    box_y, box_h = 1410, 92
-    rounded_rect(draw, (20, box_y, W-20, box_y+box_h), 12, WHITE, GOLD_DARK, 1)
-    draw.ellipse((42, box_y+26, 82, box_y+66), outline=GOLD_DARK, width=2)
-    draw_text(draw, (62, box_y+33), "i", GOLD_DARK, F_20B, anchor="ma")
-    draw_wrapped(draw, DISCLAIMER, 102, box_y+18, W-140, F_9, TEXT, 11)
-
-    return img
-
-def image_to_png_bytes(img):
-    b = io.BytesIO()
-    img.save(b, format="PNG")
-    return b.getvalue()
-
-def image_to_pdf_bytes(img):
-    b = io.BytesIO()
-    img.save(b, format="PDF", resolution=150.0)
-    return b.getvalue()
+    for _, r in df.iterrows():
+        lines.append(
+            f"{r['Instrumento']} | "
+            f"{pct(r['Part. (%)'])} | "
+            f"{money(r['Monto'])} | "
+            f"{r['Emisor']} | "
+            f"{r['Calificación']} | "
+            f"{safe_float(r['Duración']):.2f} años | "
+            f"{r[rate_column]} | "
+            f"{r['Periodicidad Cupones']}"
+        )
+    return "\n".join(lines)
 
 
-# =========================
-# UI STREAMLIT
-# =========================
-st.set_page_config(page_title="AJ | Propuesta Página 1", layout="wide")
-st.title("AJ | Generador visual de propuesta de inversión")
-st.caption("Versión con salida tipo imagen/PDF para replicar mejor el diseño visual AJ.")
-
+# -----------------------------
+# Sidebar: datos generales
+# -----------------------------
 with st.sidebar:
     st.header("Datos generales")
-    adviser_name = st.text_input("Nombre asesor", "Alberto Jiménez")
-    adviser_role = st.text_input("Cargo", "Asesor Financiero Afiliado GBM")
-    client_name = st.text_input("Nombre cliente", "Salomón Elnecave")
-    strategy = st.text_input("Estrategia", "Renta Fija  |  Títulos Públicos y Corporativos")
-    date_text = st.text_input("Fecha", "10 JUNIO 2026")
-    total = st.number_input("Monto total del portafolio", min_value=0.0, value=4_000_000.0, step=100_000.0)
 
+    cliente = st.text_input("Cliente", "Salomón Elnecave")
+    fecha = st.text_input("Fecha", "10 JUNIO 2026")
+    monto_total = st.number_input(
+        "Monto total",
+        min_value=0.0,
+        value=4_000_000.0,
+        step=100_000.0,
+        format="%.2f",
+    )
+
+    asesor = st.text_input("Asesor", "Alberto Jiménez")
+    cargo = st.text_input("Cargo", "Asesor Financiero Afiliado GBM")
+    estrategia = st.text_input(
+        "Estrategia",
+        "Renta Fija | Títulos Públicos y Corporativos",
+    )
+
+# -----------------------------
+# Captura de instrumentos
+# -----------------------------
 st.subheader("Instrumentos gubernamentales")
-gov_df = st.data_editor(
+
+gov_input = st.data_editor(
     DEFAULT_GOV,
     num_rows="dynamic",
     use_container_width=True,
     column_config={
-        "Part. (%)": st.column_config.NumberColumn(format="%.2f"),
-        "Monto": st.column_config.NumberColumn(format="$%d", disabled=True),
-        "Duración": st.column_config.NumberColumn(format="%.2f"),
+        "Part. (%)": st.column_config.NumberColumn("Part. (%)", format="%.2f"),
+        "Duración": st.column_config.NumberColumn("Duración", format="%.2f"),
     },
-    key="gov",
+    key="gov_input",
 )
 
 st.subheader("Instrumentos corporativos")
-corp_df = st.data_editor(
+
+corp_input = st.data_editor(
     DEFAULT_CORP,
     num_rows="dynamic",
     use_container_width=True,
     column_config={
-        "Part. (%)": st.column_config.NumberColumn(format="%.2f"),
-        "Monto": st.column_config.NumberColumn(format="$%d", disabled=True),
-        "Duración": st.column_config.NumberColumn(format="%.2f"),
+        "Part. (%)": st.column_config.NumberColumn("Part. (%)", format="%.2f"),
+        "Duración": st.column_config.NumberColumn("Duración", format="%.2f"),
     },
-    key="corp",
+    key="corp_input",
 )
 
-gov_pct = gov_df["Part. (%)"].astype(float).sum()
-corp_pct = corp_df["Part. (%)"].astype(float).sum()
-udis_pct = gov_df[gov_df["Instrumento"].astype(str).str.upper().str.contains("UDI", na=False)]["Part. (%)"].astype(float).sum()
-rate = weighted_rate(gov_df, corp_df)
-duration = weighted_duration(gov_df) + weighted_duration(corp_df)
+# -----------------------------
+# Cálculos
+# -----------------------------
+gov = add_amounts(gov_input, monto_total)
+corp = add_amounts(corp_input, monto_total)
 
+gov_pct = gov["Part. (%)"].astype(float).sum() if not gov.empty else 0.0
+corp_pct = corp["Part. (%)"].astype(float).sum() if not corp.empty else 0.0
+total_pct = gov_pct + corp_pct
+
+gov_amount = monto_total * gov_pct / 100
+corp_amount = monto_total * corp_pct / 100
+
+udis_pct = gov[
+    gov["Instrumento"].astype(str).str.upper().str.contains("UDI", na=False)
+]["Part. (%)"].astype(float).sum() if not gov.empty else 0.0
+
+udis_amount = monto_total * udis_pct / 100
+
+duration_gov_avg = average_duration_by_block(gov)
+duration_corp_avg = average_duration_by_block(corp)
+duration_weighted = weighted_duration(gov) + weighted_duration(corp)
+
+rate_weighted, rate_calc_df, peso_considerado, suma_aportes = weighted_fixed_rate(gov, corp)
+
+# -----------------------------
+# Métricas visuales
+# -----------------------------
 st.divider()
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Gobierno", f"{gov_pct:.1f}%")
-m2.metric("Corporativos", f"{corp_pct:.1f}%")
-m3.metric("UDIS", f"{udis_pct:.1f}%")
-m4.metric("Tasa ponderada", f"{rate:.2f}%")
-m5.metric("Duración ponderada", f"{duration:.2f} años")
+st.subheader("Resultados calculados")
 
-if abs(gov_pct + corp_pct - 100) > 0.01:
-    st.warning(f"La suma de participaciones es {gov_pct + corp_pct:.2f}%. Idealmente debe sumar 100%.")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Gobierno", f"{gov_pct:.2f}%", money(gov_amount))
+c2.metric("Corporativos", f"{corp_pct:.2f}%", money(corp_amount))
+c3.metric("UDIS", f"{udis_pct:.2f}%", money(udis_amount))
+c4.metric("Tasa ponderada", f"{rate_weighted:.2f}%")
+c5.metric("Duración ponderada", f"{duration_weighted:.2f} años")
 
-with st.expander("Ver cálculo de tasa ponderada"):
-    rows = []
-    for _, r in gov_df.iterrows():
-        tasa = str(r.get("Tasa / Sobretasa", ""))
-        if "UDI" not in tasa.upper():
-            rn = fixed_rate_from_text(tasa)
-            if rn is not None:
-                peso = safe_float(r["Part. (%)"])
-                rows.append([r["Instrumento"], peso, tasa, rn, peso * rn])
-    for _, r in corp_df.iterrows():
-        tasa = str(r.get("Tasa", ""))
-        rn = fixed_rate_from_text(tasa)
-        if rn is not None:
-            peso = safe_float(r["Part. (%)"])
-            rows.append([r["Instrumento"], peso, tasa, rn, peso * rn])
-    calc = pd.DataFrame(rows, columns=["Instrumento", "Peso %", "Tasa capturada", "Tasa numérica", "Aporte"])
-    st.dataframe(calc, use_container_width=True)
-    if not calc.empty:
-        st.write(f"Tasa ponderada = {calc['Aporte'].sum():.4f} / {calc['Peso %'].sum():.2f} = {calc['Aporte'].sum()/calc['Peso %'].sum():.2f}%")
+c6, c7, c8 = st.columns(3)
+c6.metric("Duración promedio Gobierno", f"{duration_gov_avg:.2f} años")
+c7.metric("Duración promedio Corporativos", f"{duration_corp_avg:.2f} años")
+c8.metric("Peso considerado tasa", f"{peso_considerado:.2f}%")
 
-img = generate_page(client_name, adviser_name, adviser_role, date_text, strategy, total, gov_df, corp_df)
+if abs(total_pct - 100) > 0.01:
+    st.warning(f"La suma total de participaciones es {total_pct:.2f}%. Idealmente debe sumar 100%.")
 
-st.subheader("Vista previa")
-st.image(img, use_container_width=True)
+# -----------------------------
+# Desglose de cálculos
+# -----------------------------
+with st.expander("Ver desglose de tasa ponderada"):
+    if rate_calc_df.empty:
+        st.warning("No hay tasas numéricas capturadas.")
+    else:
+        st.dataframe(rate_calc_df, use_container_width=True)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.download_button(
-        "Descargar PNG",
-        data=image_to_png_bytes(img),
-        file_name=f"AJ_Propuesta_Pagina_1_{client_name.replace(' ', '_')}.png",
-        mime="image/png",
+        st.markdown(
+            f"""
+            **Suma de aportes:** {suma_aportes:.4f}  
+            **Peso considerado:** {peso_considerado:.2f}%  
+            **Tasa ponderada:** {suma_aportes:.4f} / {peso_considerado:.2f} = **{rate_weighted:.2f}%**
+            """
+        )
+
+with st.expander("Ver desglose de duración ponderada"):
+    dur_rows = []
+
+    for _, r in gov.iterrows():
+        peso = safe_float(r["Part. (%)"])
+        dur = safe_float(r["Duración"])
+        dur_rows.append(
+            {
+                "Tipo": "Gobierno",
+                "Instrumento": r["Instrumento"],
+                "Peso %": peso,
+                "Duración": dur,
+                "Aporte duración": peso / 100 * dur,
+            }
+        )
+
+    for _, r in corp.iterrows():
+        peso = safe_float(r["Part. (%)"])
+        dur = safe_float(r["Duración"])
+        dur_rows.append(
+            {
+                "Tipo": "Corporativo",
+                "Instrumento": r["Instrumento"],
+                "Peso %": peso,
+                "Duración": dur,
+                "Aporte duración": peso / 100 * dur,
+            }
+        )
+
+    dur_calc_df = pd.DataFrame(dur_rows)
+    st.dataframe(dur_calc_df, use_container_width=True)
+
+    st.markdown(
+        f"""
+        **Duración ponderada total:** {duration_weighted:.4f} años  
+        **Duración promedio Gobierno:** {duration_gov_avg:.2f} años  
+        **Duración promedio Corporativos:** {duration_corp_avg:.2f} años
+        """
     )
-with col2:
-    st.download_button(
-        "Descargar PDF",
-        data=image_to_pdf_bytes(img),
-        file_name=f"AJ_Propuesta_Pagina_1_{client_name.replace(' ', '_')}.pdf",
-        mime="application/pdf",
-    )
+
+# -----------------------------
+# Bloque listo para copiar
+# -----------------------------
+st.divider()
+st.subheader("Bloque listo para copiar aquí")
+
+copy_block = f"""Cliente: {cliente}
+Fecha: {fecha}
+Asesor: {asesor}
+Cargo: {cargo}
+Estrategia: {estrategia}
+Monto total: {money(monto_total)}
+
+Gobierno total: {pct(gov_pct)} | {money(gov_amount)}
+Corporativos total: {pct(corp_pct)} | {money(corp_amount)}
+UDIS total: {pct(udis_pct)} | {money(udis_amount)}
+Tasa ponderada: {rate_weighted:.2f}%
+Duración ponderada: {duration_weighted:.2f} años
+Duración promedio Gobierno: {duration_gov_avg:.2f} años
+Duración promedio Corporativos: {duration_corp_avg:.2f} años
+
+Gobierno:
+Instrumento | Part. | Monto | Emisor | Calificación | Duración | Tasa/Sobretasa | Periodicidad
+{format_table_for_copy(gov, "Tasa / Sobretasa")}
+
+Corporativos:
+Instrumento | Part. | Monto | Emisor | Calificación | Duración | Tasa | Periodicidad
+{format_table_for_copy(corp, "Tasa")}
+
+Nota tasa:
+* TIIE+
+"""
+
+st.code(copy_block, language="text")
+
+st.download_button(
+    "Descargar bloque en TXT",
+    data=copy_block.encode("utf-8"),
+    file_name=f"datos_propuesta_{cliente.replace(' ', '_')}.txt",
+    mime="text/plain",
+)
